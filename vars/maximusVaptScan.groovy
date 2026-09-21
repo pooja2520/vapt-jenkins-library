@@ -58,8 +58,10 @@ except Exception as e:
     // Write the python script to workspace
     writeFile file: 'vapt_runner.py', text: pythonScript
     
-    // Execute the python script
-    sh "python3 vapt_runner.py '${serverUrl}' '${apiKey}' '${target}'"
+    // Execute the python script securely without Groovy interpolation for secrets
+    withEnv(["VAPT_API_KEY=${apiKey}"]) {
+        sh "python3 vapt_runner.py '${serverUrl}' \"\$VAPT_API_KEY\" '${target}'"
+    }
     
     // Archive reports
     archiveArtifacts artifacts: 'vapt_reports/*.*', allowEmptyArchive: true
