@@ -24,15 +24,15 @@ def req(url, data=None):
     return urllib.request.urlopen(req_obj, data=data)
 
 try:
-    print(f"Triggering scan at {server_url}/api/ci/trigger")
-    resp = req(f"{server_url}/api/ci/trigger", data={"target": target})
-    task_id = json.loads(resp.read())["task_id"]
-    print(f"Started scan. Task ID: {task_id}")
+    print(f"Triggering scan at {server_url}/api/ci/code-scan/start")
+    resp = req(f"{server_url}/api/ci/code-scan/start", data={"source": target})
+    job_id = json.loads(resp.read())["job_id"]
+    print(f"Started scan. Job ID: {job_id}")
 
     print("Polling for status...")
     while True:
         time.sleep(10)
-        st = json.loads(req(f"{server_url}/api/ci/status/{task_id}").read())
+        st = json.loads(req(f"{server_url}/api/ci/code-scan/status/{job_id}").read())
         status = st.get("status")
         print(f"Current Status: {status}")
         if status not in ["running", "pending"]:
@@ -45,10 +45,10 @@ try:
     os.makedirs("vapt_reports", exist_ok=True)
     
     with open("vapt_reports/Maximus_VAPT_Report.html", "wb") as f:
-        f.write(req(f"{server_url}/api/ci/download_report/html?task_id={task_id}").read())
+        f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/html").read())
         
     with open("vapt_reports/Maximus_VAPT_Report.xlsx", "wb") as f:
-        f.write(req(f"{server_url}/api/ci/download_report/excel?task_id={task_id}").read())
+        f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/excel").read())
         
     print("Reports downloaded successfully.")
 except Exception as e:
