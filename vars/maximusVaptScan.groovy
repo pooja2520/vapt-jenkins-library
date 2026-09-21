@@ -51,6 +51,12 @@ try:
         f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/excel").read())
         
     print("Reports downloaded successfully.")
+except urllib.error.HTTPError as e:
+    try:
+        err_msg = json.loads(e.read().decode())["error"]
+        sys.exit(f"API Error: {err_msg}")
+    except:
+        sys.exit(f"HTTP Error {e.code}: {e.reason}")
 except Exception as e:
     sys.exit(f"Error executing VAPT scan: {str(e)}")
 """
