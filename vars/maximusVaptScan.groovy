@@ -1,8 +1,20 @@
 def call(Map config = [:]) {
-    String serverUrl = config.vaptServerUrl ?: 'https://vapt.maximusatlas.com'
+    String serverUrl = config.vaptServerUrl ?: 'https://pt.maximusatlas.com'
     String apiKey = config.apiKey
     String target = config.target
+    String branch = config.branch ?: env.BRANCH_NAME ?: 'unknown_branch'
+    String pipelineRunId = config.pipelineRunId ?: env.BUILD_NUMBER ?: '000'
+    String githubToken = config.githubToken ?: ''
     
+    // Attempt to extract repo name from target URL if not explicitly provided
+    String repoName = config.repoName
+    if (!repoName && target) {
+        def parts = target.split('/')
+        repoName = parts.length >= 2 ? "${parts[-2]}/${parts[-1]}".replace('.git', '') : 'unknown_repo'
+    } else if (!repoName) {
+        repoName = 'unknown_repo'
+    }
+
     if (!apiKey || !target) {
         error "maximusVaptScan requires 'apiKey' and 'target' parameters."
     }
@@ -10,11 +22,15 @@ def call(Map config = [:]) {
     echo "Triggering Maximus VAPT Scan for ${target}..."
     
     String pythonScript = """
-import sys, time, json, urllib.request, urllib.error, os
+import sys, time, json, urllib.request, urllib.parse, urllib.error, os
 
 server_url = sys.argv[1]
 api_key = sys.argv[2]
 target = sys.argv[3]
+repo_name = sys.argv[4]
+branch = sys.argv[5]
+build_id = sys.argv[6]
+token = sys.argv[7] if len(sys.argv) > 7 else ""
 
 def req(url, data=None):
     req_obj = urllib.request.Request(url, headers={"X-API-Key": api_key})
@@ -25,7 +41,14 @@ def req(url, data=None):
 
 try:
     print(f"Triggering scan at {server_url}/api/ci/code-scan/start")
-    resp = req(f"{server_url}/api/ci/code-scan/start", data={"source": target})
+    start_payload = {
+        "source": target,
+        "repo_name": repo_name,
+        "branch": branch,
+        "pipeline_run_id": build_id,
+        "github_token": token
+    }
+    resp = req(f"{server_url}/api/ci/code-scan/start", data=start_payload)
     job_id = json.loads(resp.read())["job_id"]
     print(f"Started scan. Job ID: {job_id}")
 
@@ -38,19 +61,43 @@ try:
         if status not in ["running", "pending"]:
             break
 
-    if status == "failed":
+    if status in ["failed", "error"]:
         sys.exit("Scan failed on the server.")
 
-    print("Scan completed successfully! Downloading reports...")
+    print("Scan completed successfully! Fetching scan results...")
+    result_resp = req(f"{server_url}/api/ci/code-scan/result/{job_id}")
+    results = json.loads(result_resp.read())
+    
+    summary = results.get("summary", {})
+    critical = summary.get("critical", 0)
+    high = summary.get("high", 0)
+    
+    print("\\n=== SCAN SUMMARY ===")
+    print(f"Critical: {critical}")
+    print(f"High:     {high}")
+    print(f"Medium:   {summary.get('medium', 0)}")
+    print(f"Low:      {summary.get('low', 0)}")
+    print(f"Info:     {summary.get('info', 0)}")
+    print("====================\\n")
+
+    print("Downloading reports...")
     os.makedirs("vapt_reports", exist_ok=True)
     
+    qs = urllib.parse.urlencode({"repo_name": repo_name, "branch": branch, "build_id": build_id})
+    
     with open("vapt_reports/Maximus_VAPT_Report.html", "wb") as f:
-        f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/html").read())
+        f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/html?{qs}").read())
         
     with open("vapt_reports/Maximus_VAPT_Report.xlsx", "wb") as f:
-        f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/excel").read())
+        f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/excel?{qs}").read())
         
     print("Reports downloaded successfully.")
+    
+    if critical > 0 or high > 0:
+        sys.exit("Build Failed: Critical or High vulnerabilities found!")
+    else:
+        print("Build Passed: No critical/high vulnerabilities.")
+
 except urllib.error.HTTPError as e:
     try:
         err_msg = json.loads(e.read().decode())["error"]
@@ -65,8 +112,8 @@ except Exception as e:
     writeFile file: 'vapt_runner.py', text: pythonScript
     
     // Execute the python script securely without Groovy interpolation for secrets
-    withEnv(["VAPT_API_KEY=${apiKey}"]) {
-        sh "python3 vapt_runner.py '${serverUrl}' \"\$VAPT_API_KEY\" '${target}'"
+    withEnv(["VAPT_API_KEY=${apiKey}", "GITHUB_TOKEN=${githubToken}"]) {
+        sh "python3 vapt_runner.py '${serverUrl}' \"\$VAPT_API_KEY\" '${target}' '${repoName}' '${branch}' '${pipelineRunId}' \"\$GITHUB_TOKEN\""
     }
     
     // Archive reports
@@ -74,3 +121,4 @@ except Exception as e:
     
     echo "Maximus VAPT Scan finished!"
 }
+
