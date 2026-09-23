@@ -86,7 +86,7 @@ try:
     qs = urllib.parse.urlencode({"repo_name": repo_name, "branch": branch, "build_id": build_id})
     
     html_content = req(f"{server_url}/api/ci/code-scan/report/{job_id}/html?{qs}").read().decode("utf-8", errors="ignore")
-    js_snippet = """
+    js_snippet = '''
     <script>
         document.addEventListener("DOMContentLoaded", function() {
             var tabs = document.querySelectorAll('.nav-link');
@@ -107,7 +107,7 @@ try:
         });
     </script>
     </body>
-    """
+    '''
     html_content = html_content.replace("</body>", js_snippet)
     
     with open("vapt_reports/Maximus_VAPT_Report.html", "wb") as f:
