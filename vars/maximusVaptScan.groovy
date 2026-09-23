@@ -85,8 +85,33 @@ try:
     
     qs = urllib.parse.urlencode({"repo_name": repo_name, "branch": branch, "build_id": build_id})
     
+    html_content = req(f"{server_url}/api/ci/code-scan/report/{job_id}/html?{qs}").read().decode("utf-8", errors="ignore")
+    js_snippet = """
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            var tabs = document.querySelectorAll('.nav-link');
+            tabs.forEach(function(tab) {
+                tab.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    tabs.forEach(function(t) { t.classList.remove('active'); });
+                    this.classList.add('active');
+                    var panes = document.querySelectorAll('.tab-pane');
+                    panes.forEach(function(p) { p.classList.remove('show', 'active'); });
+                    var targetId = this.getAttribute('href').substring(1);
+                    var targetPane = document.getElementById(targetId);
+                    if (targetPane) {
+                        targetPane.classList.add('show', 'active');
+                    }
+                });
+            });
+        });
+    </script>
+    </body>
+    """
+    html_content = html_content.replace("</body>", js_snippet)
+    
     with open("vapt_reports/Maximus_VAPT_Report.html", "wb") as f:
-        f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/html?{qs}").read())
+        f.write(html_content.encode("utf-8"))
         
     with open("vapt_reports/Maximus_VAPT_Report.xlsx", "wb") as f:
         f.write(req(f"{server_url}/api/ci/code-scan/report/{job_id}/excel?{qs}").read())
